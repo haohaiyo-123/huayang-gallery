@@ -96,25 +96,33 @@ def src_yetu(page):
 
     def crawl_album(album):
         out = []
+        title = None
         try:
             nxt = album
             hops = 0
             while nxt and hops < 15:
                 hops += 1
                 page_html = fetch(nxt, referer="https://www.yeitu.com/")
+                if hops == 1:
+                    tm = re.search(r'<h1[^>]*>([^<]+)</h1>', page_html)
+                    if tm: title = tm.group(1).strip()
                 for m in re.finditer(r'<img[^>]+src="(https?://[^"]*jiutuvip[^"]+)"', page_html):
-                    out.append(m.group(1))  # jiutuvip CDN 无防盗链
+                    u = m.group(1)
+                    if u not in out:
+                        out.append(u)  # jiutuvip CDN 无防盗链
                 nm = re.search(r'<a[^>]+href="([^"]+)"[^>]*>\s*下一页', page_html)
                 nxt = urljoin("https://www.yeitu.com/", nm.group(1)) if nm else None
         except Exception:
             pass
-        return out
+        return out, title
 
-    imgs = []
+    albums_out, titles = [], []
     with ThreadPoolExecutor(max_workers=6) as ex:
-        for part in ex.map(crawl_album, albums[:12]):
-            imgs.extend(part)
-    return imgs
+        for part, title in ex.map(crawl_album, albums[:12]):
+            if part:
+                albums_out.append(part)
+                titles.append(title or f"图集 {len(albums_out)}")
+    return albums_out, titles
 
 SOURCES = {"yetu": ("亿图花漾", src_yetu, 21)}
 
@@ -132,14 +140,11 @@ def api_images():
         return jsonify({"error": "unknown source"}), 404
     name, fn, _ = SOURCES[sid]
     try:
-        urls = fn(page)
+        albums, titles = fn(page)
     except Exception as e:
-        return jsonify({"error": str(e), "images": []})
-    seen, out = set(), []
-    for u in urls:
-        if u not in seen:
-            seen.add(u); out.append(u)
-    return jsonify({"source": sid, "name": name, "page": page, "images": out})
+        return jsonify({"error": str(e), "albums": []})
+    return jsonify({"source": sid, "name": name, "page": page,
+                    "albums": [{"title": t, "images": a} for t, a in zip(titles, albums)]})
 
 _PROXY_CACHE = {}
 

@@ -24,18 +24,29 @@
   nav button:disabled { opacity: .35; }
   #pageLabel { font-size: 14px; color: var(--dim); min-width: 64px; text-align: center; }
   main { padding: 0 10px 40px; }
-  .grid { column-count: 2; column-gap: 8px; }
-  @media (min-width: 700px) { .grid { column-count: 3; } }
-  @media (min-width: 1100px) { .grid { column-count: 4; } }
-  .card { break-inside: avoid; margin-bottom: 8px; border-radius: 8px; overflow: hidden;
-          background: var(--card); position: relative; cursor: zoom-in; }
-  .card img { width: 100%; display: block; }
-  .card.err { min-height: 80px; }
-  .card.err::after { content: "✕"; position: absolute; inset: 0; display: flex; align-items: center;
-          justify-content: center; color: var(--dim); font-size: 18px; }
-  #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.95); display: none;
-          align-items: center; justify-content: center; z-index: 100; }
-  #lightbox img { max-width: 100vw; max-height: 100vh; object-fit: contain; }
+  .alist { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  @media (min-width: 700px) { .alist { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 1100px) { .alist { grid-template-columns: repeat(4, 1fr); } }
+  .album { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer; }
+  .album .cover { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; background: #111; }
+  .album .meta { padding: 8px 10px 10px; }
+  .album .t { font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2;
+              -webkit-box-orient: vertical; overflow: hidden; }
+  .album .n { font-size: 11px; color: var(--dim); margin-top: 4px; }
+  #viewer { position: fixed; inset: 0; background: #000; display: none; z-index: 100; flex-direction: column; }
+  #viewer .vtop { display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+                  background: rgba(15,17,21,.92); }
+  #viewer .vtitle { font-size: 14px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #viewer .vclose { background: var(--card); border: 1px solid var(--line); color: var(--txt);
+                    border-radius: 8px; padding: 6px 14px; font-size: 14px; }
+  #viewer .vstage { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+  #viewer .vstage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #viewer .vbottom { display: flex; align-items: center; justify-content: center; gap: 18px;
+                     padding: 10px 0 calc(12px + env(safe-area-inset-bottom)); background: rgba(15,17,21,.92); }
+  #viewer .vbottom button { background: var(--card); border: 1px solid var(--line); color: var(--txt);
+                            border-radius: 10px; padding: 12px 30px; font-size: 16px; }
+  #viewer .vbottom button:disabled { opacity: .35; }
+  #viewer .vidx { font-size: 13px; color: var(--dim); min-width: 70px; text-align: center; }
   #sentinel { text-align: center; padding: 18px; color: var(--dim); font-size: 13px; }
 </style>
 </head>
@@ -44,22 +55,54 @@
   <h1>🌸 花漾画廊</h1>
   <span id="status"></span>
 </header>
-<nav>
+<nav id="pageNav">
   <button id="prev">‹ 上一页</button>
   <span id="pageLabel">1</span>
   <button id="next">下一页 ›</button>
 </nav>
 <main>
-  <div class="grid" id="grid"></div>
+  <div class="alist" id="alist"></div>
   <div id="sentinel">加载中…</div>
 </main>
-<div id="lightbox"><img id="lbImg" alt=""></div>
+
+<div id="viewer">
+  <div class="vtop">
+    <span class="vtitle" id="vTitle"></span>
+    <button class="vclose" id="vClose">✕ 关闭</button>
+  </div>
+  <div class="vstage"><img id="vImg" alt=""></div>
+  <div class="vbottom">
+    <button id="vPrev">‹ 上一张</button>
+    <span class="vidx" id="vIdx"></span>
+    <button id="vNext">下一张 ›</button>
+  </div>
+</div>
 
 <script>
 let page = 1, loading = false;
 const $ = id => document.getElementById(id);
+// 当前浏览的图集
+let curAlbum = [], curTitle = "", curIdx = 0;
 
 function proxied(u) { return "/proxy?url=" + encodeURIComponent(u); }
+
+function openAlbum(album, title) {
+  curAlbum = album; curTitle = title; curIdx = 0;
+  $("vTitle").textContent = title;
+  $("viewer").style.display = "flex";
+  showImg(0);
+}
+function showImg(i) {
+  if (i < 0 || i >= curAlbum.length) return;
+  curIdx = i;
+  $("vImg").src = proxied(curAlbum[i]);
+  $("vIdx").textContent = (i+1) + " / " + curAlbum.length;
+  $("vPrev").disabled = i === 0;
+  $("vNext").disabled = i === curAlbum.length - 1;
+}
+$("vPrev").onclick = () => showImg(curIdx - 1);
+$("vNext").onclick = () => showImg(curIdx + 1);
+$("vClose").onclick = () => { $("viewer").style.display = "none"; $("vImg").src = ""; };
 
 async function load() {
   if (loading) return;
@@ -67,24 +110,30 @@ async function load() {
   $("status").textContent = "抓取中…";
   try {
     const data = await (await fetch(`/api/images?source=yetu&page=${page}`)).json();
-    if (data.images && data.images.length) {
-      $("status").textContent = `${data.images.length} 张`;
+    if (data.albums && data.albums.length) {
+      const total = data.albums.reduce((s,a)=>s+a.images.length, 0);
+      $("status").textContent = `${data.albums.length} 套 · ${total} 张`;
       $("pageLabel").textContent = page;
-      const grid = $("grid");
-      data.images.forEach(u => {
+      const list = $("alist");
+      data.albums.forEach(a => {
+        if (!a.images.length) return;
         const card = document.createElement("div");
-        card.className = "card";
+        card.className = "album";
         const img = new Image();
+        img.className = "cover";
         img.loading = "lazy";
         img.decoding = "async";
-        img.onerror = () => card.classList.add("err");
-        img.src = proxied(u);
-        img.onclick = () => { $("lbImg").src = proxied(u); $("lightbox").style.display = "flex"; };
-        card.appendChild(img);
-        grid.appendChild(card);
+        img.onerror = () => { img.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"; };
+        img.src = proxied(a.images[0]);   // 封面 = 图集第一张
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.innerHTML = `<div class="t"></div><div class="n">${a.images.length} 张</div>`;
+        meta.querySelector(".t").textContent = a.title;
+        card.appendChild(img); card.appendChild(meta);
+        card.onclick = () => openAlbum(a.images, a.title);
+        list.appendChild(card);
       });
     } else {
-      // 本页没有新图时继续翻下一页（源有稀疏页）
       if (page < 25) { page++; load(); }
       $("status").textContent = data.error ? "出错了" : "没有更多";
     }
@@ -95,9 +144,8 @@ async function load() {
   $("sentinel").style.display = "none";
 }
 
-$("prev").onclick = () => { if (page > 1) { page--; $("grid").innerHTML = ""; window.scrollTo(0,0); load(); } };
-$("next").onclick = () => { page++; $("grid").innerHTML = ""; window.scrollTo(0,0); load(); };
-$("lightbox").onclick = () => { $("lightbox").style.display = "none"; };
+$("prev").onclick = () => { if (page > 1) { page--; $("alist").innerHTML = ""; window.scrollTo(0,0); load(); } };
+$("next").onclick = () => { page++; $("alist").innerHTML = ""; window.scrollTo(0,0); load(); };
 load();
 </script>
 </body>
