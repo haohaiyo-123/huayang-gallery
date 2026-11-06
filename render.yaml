@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: huayang-gallery
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/sources
