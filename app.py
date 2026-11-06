@@ -141,14 +141,25 @@ def api_images():
             seen.add(u); out.append(u)
     return jsonify({"source": sid, "name": name, "page": page, "images": out})
 
+_PROXY_CACHE = {}
+
 @app.get("/proxy")
 def proxy():
     url = request.args.get("url", "")
     if not url.startswith(("http://", "https://")):
         return "bad url", 400
+    if url in _PROXY_CACHE:
+        data, ctype = _PROXY_CACHE[url]
+        return Response(data, mimetype=ctype, headers={"Cache-Control": "public, max-age=86400"})
     try:
-        r = requests.get(url, headers={"User-Agent": UA, "Referer": "https://www.yeitu.com/"}, timeout=25)
-        return Response(r.content, mimetype=r.headers.get("Content-Type", "image/jpeg"))
+        r = requests.get(url, headers={"User-Agent": UA, "Referer": "https://www.yeitu.com/"}, timeout=25,
+                         stream=True)
+        data = r.content
+        ctype = r.headers.get("Content-Type", "image/jpeg")
+        if len(_PROXY_CACHE) > 300:
+            _PROXY_CACHE.pop(next(iter(_PROXY_CACHE)))
+        _PROXY_CACHE[url] = (data, ctype)
+        return Response(data, mimetype=ctype, headers={"Cache-Control": "public, max-age=86400"})
     except Exception as e:
         return f"proxy error: {e}", 502
 
@@ -157,14 +168,23 @@ def cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 
-    # 手机适配 + PWA：可"添加到主屏幕"当 App 用
-    resp.headers.setdefault("Cache-Control", "no-store")
-    return resp
-
 @app.get("/sw.js")
 def sw_js():
-    return Response("""self.addEventListener('fetch', e => {});""",
-                    mimetype="application/javascript")
+    return Response("""const C='imgcache-v1';
+self.addEventListener('install', e => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+self.addEventListener('fetch', e => {
+  const u = new URL(e.request.url);
+  if (u.pathname === '/proxy' && e.request.method === 'GET') {
+    e.respondWith(caches.open(C).then(async c => {
+      const hit = await c.match(e.request);
+      if (hit) return hit;
+      const resp = await fetch(e.request);
+      if (resp.ok) c.put(e.request, resp.clone());
+      return resp;
+    }));
+  }
+});""", mimetype="application/javascript")
 
 @app.get("/manifest.json")
 def manifest():
