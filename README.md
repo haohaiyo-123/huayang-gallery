@@ -1,26 +1,39 @@
-# 花漾画廊 — 部署到 Hugging Face Spaces
+# 花漾画廊 — 部署到 Render（免费、无需信用卡）
 
-把画廊部署到 HF Spaces（免费、无需信用卡），手机随时访问，不依赖家里电脑。
+把画廊部署到 Render，手机随时访问，不依赖家里电脑。
+
+> 注：Hugging Face Spaces 自 2026 年 7 月起 Docker/Gradio Spaces 已改为付费（仅 Static 免费），本方案改用 Render。
 
 ## 步骤
 
-1. 注册/登录 https://huggingface.co
-2. 右上角头像 → **New Space**
-   - Space name: `huayang-gallery`
-   - License: 随意（如 mit）
-   - SDK 选 **Docker** → Blank 模板
-   - 可见性建议 **Public**（Private 的话 Pro 才能匿名访问，Public 免费最方便）
-3. 上传本目录的 3 个文件到 Space（网页上 Files → Add file → Upload files）：
-   - `Dockerfile`
-   - `requirements.txt`
-   - `app.py`
-   - `templates/index.html`（注意保持 templates 目录结构，用 Upload files 时把文件拖进会自动建目录吗？——不会，用一次 commit：可以先 Add file → Create a new file，路径填 `templates/index.html`，再把 index.html 内容粘进去）
-4. 等待自动构建（2~5 分钟），状态变 Running
-5. 得到网址：`https://你的用户名-huayang-gallery.hf.space`
-6. 手机浏览器打开该网址 → 分享 → 添加到主屏幕 = 一个独立 App
+1. 打开 https://dashboard.render.com → 用 GitHub 账号登录（无需信用卡）
+2. **New +** → **Web Service**
+3. 授权 GitHub 后选择本仓库 `huayang-gallery`（若列表没有，点 "Configure account" 授权）
+4. 配置页：
+   - **Region**: Singapore（离国内最近）
+   - **Instance Type**: **Free**（0.1 CPU / 512MB）
+   - 其余保持默认（`render.yaml` 已填好）
+5. 点 **Deploy Web Service**，构建约 3~5 分钟
+6. 部署完成后得到公网地址：`https://huayang-gallery.onrender.com`（以后缀实际为准）
+7. 手机浏览器打开 → 分享 → **添加到主屏幕** = 独立 App
 
-## 说明
+## 免费层特性（重要）
 
-- 免费额度：CPU Basic 免费、无时间限制；闲置约 48h 后会休眠，访问时会自动唤醒（首次慢 20~30 秒）
-- 服务内部已含 CF 边缘 IP 池直连逻辑（机房 DNS 同样解析到失效源站，脚本用 curl --resolve 绕过）
-- 图片通过 `/proxy` 代理出站，HF 免费流量对这种小画廊完全够用
+- **15 分钟无访问自动休眠**，下次访问需约 1 分钟唤醒——第一次打开转圈是正常现象，不是坏了
+- 每月 750 实例小时（一个服务跑满整月没问题）
+- 免费带宽 5GB/月（小画廊绰绰有余）
+
+## 技术说明
+
+- `yeitu.com` 的 DNS（含 Ali DoH）被污染指向失效源站 120.26.198.174，站点实际存活于 Cloudflare 之后
+- 服务内置 CF 边缘 IP 候选池（约 20 个 IP），并行健康检查（5s 超时），结果缓存 600s，自动失败转移
+- 用 `curl --resolve` 钉住健康边缘 IP 直连抓取（Dockerfile 已安装 curl）
+- 图片走 jiutuvip CDN（无防盗链），出站经 `/proxy` 代理并带 Referer 兜底
+- PWA：手机「添加到主屏幕」后全屏独立运行（manifest + service worker 已内置）
+
+## 本地开发
+
+```bash
+pip install -r requirements.txt
+python app.py          # 默认 0.0.0.0:8899，可用 PORT 环境变量覆盖
+```
